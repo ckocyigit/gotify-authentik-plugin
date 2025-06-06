@@ -15,11 +15,11 @@ jobs:
 
       - name: Set up Docker Build Environment
         run: |
-          docker pull gotify/build:1.23.3-linux-amd64
+          docker pull gotify/build:1.24.1-linux-amd64
 
       - name: Build the Plugin
         run: |
-          docker run --rm -v "$PWD/.:/proj" -w /proj gotify/build:1.23.3-linux-amd64 \
+          docker run --rm -v "$PWD/.:/proj" -w /proj gotify/build:1.24.1-linux-amd64 \
             go build -a -installsuffix cgo -ldflags "-w -s" -buildmode=plugin -o plugin/authentik-plugin-amd64.so /proj
 
       - name: Create Release
