@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+type AuthMethodArgs struct {
+	MFADevices   []MFADevice `json:"mfa_devices"`
+	KnownDevice  string      `json:"known_device,omitempty"`
+}
 type AuthentikWebhookPayload struct {
 	Body              string `json:"body"`
 	EventUserEmail    string `json:"event_user_email"`
@@ -62,10 +66,6 @@ type HTTPRequest struct {
 	UserAgent string            `json:"user_agent"`
 }
 
-type AuthMethodArgs struct {
-	MFADevices []MFADevice `json:"mfa_devices"`
-}
-
 type MFADevice struct {
 	PK        int    `json:"pk"`
 	App       string `json:"app"`
@@ -92,6 +92,8 @@ func ReturnGotifyMessageFromAuthentikPayload(payload AuthentikWebhookPayload) (s
 		var data LoginData
 		bodyContent := strings.TrimPrefix(payload.Body, "login: ")
 		bodyContent = strings.ReplaceAll(bodyContent, "'", "\"")
+		bodyContent = strings.ReplaceAll(bodyContent, "True", `"true"`)
+		bodyContent = strings.ReplaceAll(bodyContent, "False", `"false"`)
 
 		if err := json.Unmarshal([]byte(bodyContent), &data); err != nil {
 			return "Error parsing login_failed data", err.Error(), 7

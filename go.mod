@@ -1,6 +1,6 @@
 module github.com/ckocyigit/gotify-authentik-plugin
 
-go 1.23.3
+go 1.24.1
 
 require (
 	github.com/gin-gonic/gin v1.10.0
