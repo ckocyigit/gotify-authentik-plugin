@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 
@@ -20,13 +21,54 @@ func GetGotifyPluginInfo() plugin.Info {
 	}
 }
 
+type Config struct {
+	FriendlyName string `json:"friendly_name" yaml:"friendly_name"`
+}
+
+type Storage struct {
+	Config Config `json:"config"`
+}
+
 type Plugin struct {
-	userCtx    plugin.UserContext
-	msgHandler plugin.MessageHandler
-	basePath   string
+	userCtx        plugin.UserContext
+	msgHandler     plugin.MessageHandler
+	storageHandler plugin.StorageHandler
+	config         *Config
+	basePath       string
+}
+
+func (p *Plugin) DefaultConfig() interface{} {
+	return &Config{
+		FriendlyName: "",
+	}
+}
+
+func (p *Plugin) ValidateAndSetConfig(conf interface{}) error {
+	config, ok := conf.(*Config)
+	if !ok {
+		return fmt.Errorf("invalid config type")
+	}
+	p.config = config
+	return nil
+}
+
+func (p *Plugin) SetStorageHandler(h plugin.StorageHandler) {
+	p.storageHandler = h
 }
 
 func (p *Plugin) Enable() error {
+	storage := new(Storage)
+	storageBytes, err := p.storageHandler.Load()
+	if err != nil {
+		return err
+	}
+
+	if len(storageBytes) > 0 {
+		if err := json.Unmarshal(storageBytes, storage); err != nil {
+			return err
+		}
+		p.config = &storage.Config
+	}
 	return nil
 }
 
@@ -77,8 +119,15 @@ func (p *Plugin) RegisterWebhook(basePath string, mux *gin.RouterGroup) {
 	mux.POST("/"+routeSuffix, p.webhookHandler)
 }
 
-func getMarkdownMsg(title string, message string, priority int, host string) plugin.Message {
-	formattedMessage := fmt.Sprintf("Authentik instance at: %s\n\n```\n%s\n```", host, message)
+func (p *Plugin) getMarkdownMsg(title string, message string, priority int, host string) plugin.Message {
+	var instanceInfo string
+	if p.config != nil && p.config.FriendlyName != "" {
+		instanceInfo = fmt.Sprintf("Authentik instance: %s", p.config.FriendlyName)
+	} else {
+		instanceInfo = fmt.Sprintf("Authentik instance at: %s", host)
+	}
+
+	formattedMessage := fmt.Sprintf("%s\n\n```\n%s\n```", instanceInfo, message)
 
 	return plugin.Message{
 		Title:    title,
@@ -96,7 +145,7 @@ func (p *Plugin) webhookHandler(c *gin.Context) {
 	var payload AuthentikWebhookPayload
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		p.msgHandler.SendMessage(getMarkdownMsg(
+		p.msgHandler.SendMessage(p.getMarkdownMsg(
 			"Error parsing JSON message",
 			err.Error(),
 			7,
@@ -107,7 +156,7 @@ func (p *Plugin) webhookHandler(c *gin.Context) {
 
 	title, message, priority := ReturnGotifyMessageFromAuthentikPayload(payload)
 
-	p.msgHandler.SendMessage(getMarkdownMsg(
+	p.msgHandler.SendMessage(p.getMarkdownMsg(
 		title,
 		message,
 		priority,
@@ -119,6 +168,7 @@ func (p *Plugin) webhookHandler(c *gin.Context) {
 func NewGotifyPluginInstance(ctx plugin.UserContext) plugin.Plugin {
 	return &Plugin{
 		userCtx: ctx,
+		config:  &Config{},
 	}
 }
 

@@ -8,6 +8,7 @@ I just could not work the mappings in authentik to work with gotify..
 ## Features
 - **Login Events**: Get notified when users successfully log in.
 - **Login Failed Events**: Receive detailed notifications when login attempts fail.
+- **Custom Instance Name**: Configure a friendly name for your Authentik instance instead of showing the server address.
 
 ## Installation
 
@@ -26,7 +27,9 @@ I just could not work the mappings in authentik to work with gotify..
    or just download the plugin from the [releases](https://github.com/ckocyigit/gotify-authentik-plugin/releases) and copy the plugin into the gotify plugin directory
 
 3. **Configure Gotify:**
-   - Place the generated `authentik_plugin.so` in the `plugins` folder of your Gotify instance.
+   - Place the generated `authentik-plugin-amd64.so` in the `plugins` folder of your Gotify instance.
+   - (Optional) You can set a friendly name for your Authentik instance in the plugin settings through the Gotify web interface.
+   - The friendly name will replace the server address in notifications if configured.
 
 ## Configuration in Authentik
 
