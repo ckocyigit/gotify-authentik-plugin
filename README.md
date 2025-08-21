@@ -49,11 +49,10 @@ To configure the webhook transport in Authentik, follow these steps:
    - Select Severity 'Notice'.
 
 7. **Create and bind Policies:**
-   - Action: Login Failed
-     - App: authentik Core
-   - Action: Login
-     - App: authentik Core
-   - The rest of the configuration should remain empty.
+   - Create two policies with the following actions (policy names can be freely chosen):
+     - Policy 1: Action: Login Failed
+     - Policy 2: Action: Login
+   - The rest of the configuration can remain empty.
 
 Other Rules/Policies are currently not supported natively, but will still be displayed in Gotify without being parsed correctly.
 
