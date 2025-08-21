@@ -58,12 +58,10 @@ func (p *Plugin) GetDisplay(location *url.URL) string {
 	Create and bind two policies:
 	- Policy 1: 
 	  - Action: Login Failed
-	  - App: authentik Core
 	  - The rest stays empty
 	
 	- Policy 2:
 	  - Action: Login
-	  - App: authentik Core
 	  - The rest stays empty
 	
 	Other event types are not currently supported for parsing but will still be displayed in Gotify, though without proper parsing.`, webhookURL)
