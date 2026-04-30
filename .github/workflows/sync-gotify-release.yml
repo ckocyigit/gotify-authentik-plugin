@@ -1,0 +1,128 @@
+name: Sync Gotify Release
+
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+    inputs:
+      gotify_tag:
+        description: Specific Gotify server release tag to sync, for example v2.9.1
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-gotify-release
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Target Gotify Release
+        id: target
+        env:
+          GOTIFY_TAG_INPUT: ${{ inputs.gotify_tag }}
+        run: |
+          set -euo pipefail
+
+          target_tag="$GOTIFY_TAG_INPUT"
+          if [ -z "$target_tag" ]; then
+            target_tag="$(curl -fsSL https://api.github.com/repos/gotify/server/releases/latest | sed -nE 's/.*"tag_name": "([^"]+)".*/\1/p' | head -n 1)"
+          fi
+
+          if [ -z "$target_tag" ]; then
+            echo "Unable to determine the target Gotify release tag" >&2
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/${target_tag}" >/dev/null; then
+            echo "already_released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_released=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          tmp_go_mod="$(mktemp)"
+          trap 'rm -f "$tmp_go_mod"' EXIT
+          curl -fsSL "https://raw.githubusercontent.com/gotify/server/${target_tag}/go.mod" -o "$tmp_go_mod"
+
+          server_go_version="$(awk '/^go / { print $2; exit }' "$tmp_go_mod")"
+          server_toolchain="$(awk '/^toolchain / { print $2; exit }' "$tmp_go_mod")"
+
+          if [ -n "$server_toolchain" ]; then
+            build_version="${server_toolchain#go}"
+          else
+            build_version="$server_go_version"
+          fi
+
+          echo "gotify_tag=${target_tag}" >> "$GITHUB_OUTPUT"
+          echo "server_go_version=${server_go_version}" >> "$GITHUB_OUTPUT"
+          echo "server_toolchain=${server_toolchain}" >> "$GITHUB_OUTPUT"
+          echo "build_version=${build_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Stop If Tag Already Exists
+        if: steps.target.outputs.already_released == 'true'
+        run: |
+          echo "${{ steps.target.outputs.gotify_tag }} already exists in this repository. Nothing to do."
+
+      - name: Set Up Go
+        if: steps.target.outputs.already_released != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.target.outputs.build_version }}
+          cache: true
+
+      - name: Sync Plugin Dependencies
+        if: steps.target.outputs.already_released != 'true'
+        run: |
+          bash ./scripts/sync-gotify-release.sh "${{ steps.target.outputs.gotify_tag }}"
+
+      - name: Detect Changes
+        if: steps.target.outputs.already_released != 'true'
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit Sync Changes
+        if: steps.target.outputs.already_released != 'true' && steps.changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add go.mod go.sum tidy.sh build.sh README.md .github/workflows/build-and-release-plugin.yml scripts/sync-gotify-release.sh .github/workflows/sync-gotify-release.yml
+          git commit -m "chore: sync Gotify ${{ steps.target.outputs.gotify_tag }}"
+
+      - name: Build Plugin Artifact
+        if: steps.target.outputs.already_released != 'true'
+        run: |
+          bash ./build.sh
+
+      - name: Push Commit And Tag
+        if: steps.target.outputs.already_released != 'true'
+        run: |
+          git tag "${{ steps.target.outputs.gotify_tag }}"
+
+          if [ "${{ steps.changes.outputs.has_changes }}" = 'true' ]; then
+            git push origin HEAD:main --follow-tags
+          else
+            git push origin "${{ steps.target.outputs.gotify_tag }}"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.target.outputs.already_released != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.target.outputs.gotify_tag }}
+          files: plugin/authentik-plugin-amd64.so
+          generate_release_notes: true

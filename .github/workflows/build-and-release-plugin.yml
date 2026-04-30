@@ -5,24 +5,23 @@ on:
     tags:
       - '*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v2
-
-      - name: Set up Docker Build Environment
-        run: |
-          docker pull gotify/build:1.26.0-linux-amd64
+        uses: actions/checkout@v4
 
       - name: Build the Plugin
         run: |
-          docker run --rm -v "$PWD/.:/proj" -w /proj gotify/build:1.26.0-linux-amd64 \
-            go build -a -installsuffix cgo -ldflags "-w -s" -buildmode=plugin -o plugin/authentik-plugin-amd64.so /proj
+          bash ./build.sh
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: plugin/authentik-plugin-amd64.so
+          generate_release_notes: true
