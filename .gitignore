@@ -1,6 +1,5 @@
 plugin
 
-*.sh
 *.ps1
 *.json
 
