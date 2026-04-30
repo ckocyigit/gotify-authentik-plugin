@@ -20,7 +20,8 @@ I just couldn’t get the mappings in Authentik to work properly with Gotify...
 2. **Build the plugin:**
    Navigate to the project directory and build the Go plugin using:
    ```bash
-   bash ./build.sh
+   docker run --rm -v "$PWD/.:/proj" -w /proj gotify/build:1.26.0-linux-amd64 \
+     go build -a -installsuffix cgo -ldflags "-w -s" -buildmode=plugin -o plugin/authentik-plugin-amd64.so /proj
    ```
 
    The build script reads the required Go toolchain from `go.mod` and selects the matching `gotify/build` image automatically.
