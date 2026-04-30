@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gotify/plugin-api"
@@ -97,13 +99,17 @@ func (p *Plugin) GetDisplay(location *url.URL) string {
 	- Set the newly created transport as the delivery method.
 	- Select Severity: 'Notice'.
 	
-	Create and bind two policies:
+	Create and bind three policies:
 	- Policy 1: 
 	  - Action: Login Failed
 	  - The rest stays empty
 	
 	- Policy 2:
 	  - Action: Login
+	  - The rest stays empty
+	
+	- Policy 3:
+	  - Action: Logout
 	  - The rest stays empty
 	
 	Other event types are not currently supported for parsing but will still be displayed in Gotify, though without proper parsing.`, webhookURL)
@@ -143,26 +149,47 @@ func (p *Plugin) getMarkdownMsg(title string, message string, priority int, host
 
 func (p *Plugin) webhookHandler(c *gin.Context) {
 	var payload AuthentikWebhookPayload
+	sourceIP := requestSourceIP(c)
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		p.msgHandler.SendMessage(p.getMarkdownMsg(
 			"Error parsing JSON message",
 			err.Error(),
 			7,
-			c.Request.RemoteAddr,
+			sourceIP,
 		))
 		return
 	}
 
-	title, message, priority := ReturnGotifyMessageFromAuthentikPayload(payload)
+	title, message, priority := ReturnGotifyMessageFromAuthentikPayload(payload, sourceIP)
 
 	p.msgHandler.SendMessage(p.getMarkdownMsg(
 		title,
 		message,
 		priority,
-		c.Request.RemoteAddr,
+		sourceIP,
 	))
 
+}
+
+func requestSourceIP(c *gin.Context) string {
+	forwardedFor := strings.TrimSpace(c.GetHeader("X-Forwarded-For"))
+	if forwardedFor != "" {
+		return strings.TrimSpace(strings.Split(forwardedFor, ",")[0])
+	}
+
+	realIP := strings.TrimSpace(c.GetHeader("X-Real-IP"))
+	if realIP != "" {
+		return realIP
+	}
+
+	remoteAddr := strings.TrimSpace(c.Request.RemoteAddr)
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil {
+		return host
+	}
+
+	return remoteAddr
 }
 
 func NewGotifyPluginInstance(ctx plugin.UserContext) plugin.Plugin {
