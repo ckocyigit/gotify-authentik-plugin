@@ -230,7 +230,7 @@ func readQuotedLiteral(runes []rune, startIndex int) (string, int, error) {
 	quote := runes[startIndex]
 	var content strings.Builder
 
-	for index := startIndex + 1; index < len(runes); index++ {
+	for index := startIndex + 1; index < len(runes); {
 		current := runes[index]
 
 		switch current {
@@ -240,11 +240,12 @@ func readQuotedLiteral(runes []rune, startIndex int) (string, int, error) {
 			}
 
 			content.WriteRune(unescapeLiteralRune(runes[index+1]))
-			index++
+			index += 2
 		case quote:
 			return content.String(), index, nil
 		default:
 			content.WriteRune(current)
+			index++
 		}
 	}
 
@@ -271,7 +272,7 @@ func unescapeLiteralRune(value rune) rune {
 }
 
 func isIdentifierRune(value rune) bool {
-	return value == '_' || ('a' <= value && value <= 'z') || ('A' <= value && value <= 'Z')
+	return value == '_' || ('0' <= value && value <= '9') || ('a' <= value && value <= 'z') || ('A' <= value && value <= 'Z')
 }
 
 func preferredUsername(payload AuthentikWebhookPayload) string {
