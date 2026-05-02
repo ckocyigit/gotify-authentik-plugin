@@ -7,8 +7,8 @@ import (
 )
 
 type AuthMethodArgs struct {
-	MFADevices   []MFADevice `json:"mfa_devices"`
-	KnownDevice  string      `json:"known_device,omitempty"`
+	MFADevices  []MFADevice    `json:"mfa_devices"`
+	KnownDevice FlexibleString `json:"known_device,omitempty"`
 }
 type AuthentikWebhookPayload struct {
 	Body              string `json:"body"`
@@ -94,13 +94,35 @@ type MFADevice struct {
 	ModelName string `json:"model_name"`
 }
 
+type FlexibleString string
+
+func (value *FlexibleString) UnmarshalJSON(data []byte) error {
+	var parsedString string
+	if err := json.Unmarshal(data, &parsedString); err == nil {
+		*value = FlexibleString(parsedString)
+		return nil
+	}
+
+	var parsedBool bool
+	if err := json.Unmarshal(data, &parsedBool); err == nil {
+		*value = FlexibleString(fmt.Sprintf("%t", parsedBool))
+		return nil
+	}
+
+	if string(data) == "null" {
+		*value = ""
+		return nil
+	}
+
+	return fmt.Errorf("unsupported string value: %s", string(data))
+}
+
 func ReturnGotifyMessageFromAuthentikPayload(payload AuthentikWebhookPayload, sourceIP string) (string, string, int) {
 	if strings.HasPrefix(payload.Body, "login_failed: ") {
 		var data LoginFailedData
 		bodyContent := strings.TrimPrefix(payload.Body, "login_failed: ")
-		bodyContent = strings.ReplaceAll(bodyContent, "'", "\"")
 
-		if err := json.Unmarshal([]byte(bodyContent), &data); err != nil {
+		if err := unmarshalAuthentikEventBody(bodyContent, &data); err != nil {
 			return "Error parsing login_failed data", err.Error(), 7
 		}
 
@@ -112,11 +134,8 @@ func ReturnGotifyMessageFromAuthentikPayload(payload AuthentikWebhookPayload, so
 	} else if strings.HasPrefix(payload.Body, "login: ") {
 		var data LoginData
 		bodyContent := strings.TrimPrefix(payload.Body, "login: ")
-		bodyContent = strings.ReplaceAll(bodyContent, "'", "\"")
-		bodyContent = strings.ReplaceAll(bodyContent, "True", `"true"`)
-		bodyContent = strings.ReplaceAll(bodyContent, "False", `"false"`)
 
-		if err := json.Unmarshal([]byte(bodyContent), &data); err != nil {
+		if err := unmarshalAuthentikEventBody(bodyContent, &data); err != nil {
 			return "Error parsing login data", err.Error(), 7
 		}
 
@@ -129,11 +148,8 @@ func ReturnGotifyMessageFromAuthentikPayload(payload AuthentikWebhookPayload, so
 	} else if strings.HasPrefix(payload.Body, "logout: ") {
 		var data LogoutData
 		bodyContent := strings.TrimPrefix(payload.Body, "logout: ")
-		bodyContent = strings.ReplaceAll(bodyContent, "'", "\"")
-		bodyContent = strings.ReplaceAll(bodyContent, "True", `"true"`)
-		bodyContent = strings.ReplaceAll(bodyContent, "False", `"false"`)
 
-		if err := json.Unmarshal([]byte(bodyContent), &data); err != nil {
+		if err := unmarshalAuthentikEventBody(bodyContent, &data); err != nil {
 			return "Error parsing logout data", err.Error(), 7
 		}
 
@@ -148,6 +164,115 @@ func ReturnGotifyMessageFromAuthentikPayload(payload AuthentikWebhookPayload, so
 		message := payload.Body
 		return title, message, 5
 	}
+}
+
+func unmarshalAuthentikEventBody(bodyContent string, target interface{}) error {
+	normalizedBody, err := normalizeAuthentikEventBody(bodyContent)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal([]byte(normalizedBody), target)
+}
+
+func normalizeAuthentikEventBody(bodyContent string) (string, error) {
+	var normalized strings.Builder
+	var token strings.Builder
+	runes := []rune(bodyContent)
+
+	flushToken := func() {
+		switch token.String() {
+		case "True":
+			normalized.WriteString("true")
+		case "False":
+			normalized.WriteString("false")
+		case "None":
+			normalized.WriteString("null")
+		default:
+			normalized.WriteString(token.String())
+		}
+		token.Reset()
+	}
+
+	for index := 0; index < len(runes); index++ {
+		current := runes[index]
+
+		switch {
+		case current == '\'' || current == '"':
+			flushToken()
+
+			literal, endIndex, err := readQuotedLiteral(runes, index)
+			if err != nil {
+				return "", err
+			}
+
+			encodedLiteral, err := json.Marshal(literal)
+			if err != nil {
+				return "", err
+			}
+
+			normalized.Write(encodedLiteral)
+			index = endIndex
+		case isIdentifierRune(current):
+			token.WriteRune(current)
+		default:
+			flushToken()
+			normalized.WriteRune(current)
+		}
+	}
+
+	flushToken()
+
+	return normalized.String(), nil
+}
+
+func readQuotedLiteral(runes []rune, startIndex int) (string, int, error) {
+	quote := runes[startIndex]
+	var content strings.Builder
+
+	for index := startIndex + 1; index < len(runes); {
+		current := runes[index]
+
+		switch current {
+		case '\\':
+			if index+1 >= len(runes) {
+				return "", 0, fmt.Errorf("unterminated escape sequence")
+			}
+
+			content.WriteRune(unescapeLiteralRune(runes[index+1]))
+			index += 2
+		case quote:
+			return content.String(), index, nil
+		default:
+			content.WriteRune(current)
+			index++
+		}
+	}
+
+	return "", 0, fmt.Errorf("unterminated quoted string")
+}
+
+func unescapeLiteralRune(value rune) rune {
+	switch value {
+	case 'n':
+		return '\n'
+	case 'r':
+		return '\r'
+	case 't':
+		return '\t'
+	case '\\':
+		return '\\'
+	case '\'':
+		return '\''
+	case '"':
+		return '"'
+	default:
+		return value
+	}
+}
+
+func isIdentifierRune(value rune) bool {
+	return value == '_' || ('0' <= value && value <= '9') || ('a' <= value && value <= 'z') || ('A' <= value && value <= 'Z')
 }
 
 func preferredUsername(payload AuthentikWebhookPayload) string {
@@ -217,7 +342,7 @@ func formatLoginMessage(username string, data LoginData, sourceIP string) string
 		"Network", formatNetwork(data.ASN, clientAddress),
 		"Auth Method", data.AuthMethod,
 		"Client", describeUserAgent(data.HTTPRequest.UserAgent),
-		"Known Device", data.AuthMethodArgs.KnownDevice,
+		"Known Device", string(data.AuthMethodArgs.KnownDevice),
 		"MFA Devices", formatMFADevices(data.AuthMethodArgs.MFADevices),
 		"RequestID", data.HTTPRequest.RequestID,
 	)
